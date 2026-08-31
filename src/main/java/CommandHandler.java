@@ -83,6 +83,54 @@ public class CommandHandler {
                 yield ":" + list.size() + "\r\n";
             }
 
+            case "LRANGE" -> {
+                String key = tokens[1];
+
+                int start = Integer.parseInt(tokens[2]);
+                int stop = Integer.parseInt(tokens[3]);
+
+                List<String> list = lists.get(key);
+
+                if (list == null) {
+                    yield "*0\r\n";
+                }
+
+                // Handle negative indexes
+                if (start < 0) {
+                    start = list.size() + start;
+                }
+
+                if (stop < 0) {
+                    stop = list.size() + stop;
+                }
+
+                // Keep indexes within bounds
+                start = Math.max(start, 0);
+                stop = Math.min(stop, list.size() - 1);
+
+                if (start > stop || start >= list.size()) {
+                    yield "*0\r\n";
+                }
+
+                StringBuilder response = new StringBuilder();
+
+                int count = stop - start + 1;
+
+                response.append("*").append(count).append("\r\n");
+
+                for (int i = start; i <= stop; i++) {
+                    String value = list.get(i);
+
+                    response.append("$")
+                            .append(value.length())
+                            .append("\r\n")
+                            .append(value)
+                            .append("\r\n");
+                }
+
+                yield response.toString();
+            }
+
             default -> "-ERR unknown command\r\n";
         };
     }

@@ -17,33 +17,19 @@ public class Main {
 
             CommandHandler handler = new CommandHandler();
 
+            String response = handler.handle(
+                    new String[]{"RPUSH", "fruits", "apple", "mango", "banana"}
+            );
+
             System.out.print(
                     handler.handle(
-                            new String[]{"SET", "name", "Fazil", "EX", "7"}
+                            new String[]{"LRANGE", "fruits", "0", "2"}
                     )
             );
 
-            // Immediately get
-            System.out.print(
-                    handler.handle(
-                            new String[]{"GET", "name"}
-                    )
-            );
+            System.out.print(response);
 
-            // Wait 6 seconds
-            try {
-                Thread.sleep(6000);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-
-            // Try again
-            System.out.print(
-                    handler.handle(
-                            new String[]{"GET", "name"}
-                    )
-            );
-          // Since the tester restarts your program quite often, setting SO_REUSEADDR
+            // Since the tester restarts your program quite often, setting SO_REUSEADDR
           // ensures that we don't run into 'Address already in use' errors
           serverSocket.setReuseAddress(true);
           // Wait for connection from client
