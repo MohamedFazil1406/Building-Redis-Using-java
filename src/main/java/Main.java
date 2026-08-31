@@ -17,15 +17,16 @@ public class Main {
           // Since the tester restarts your program quite often, setting SO_REUSEADDR
           // ensures that we don't run into 'Address already in use' errors
           serverSocket.setReuseAddress(true);
-          // Wait for connection from client.
-          clientSocket = serverSocket.accept();
-          clientSocket.getOutputStream().write("+PONG\r\n".getBytes());
-            InputStream inputStream = clientSocket.getInputStream();
-            byte[] buffer = new byte[1024];
-            int bytesRead;
-            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                clientSocket.getOutputStream().write("+PONG\r\n".getBytes());
+          // Wait for connection from client
+
+            while (true) {
+
+                Socket client = serverSocket.accept();
+
+                new Thread(() -> handleClient(client)).start();
             }
+
+
         } catch (IOException e) {
           System.out.println("IOException: " + e.getMessage());
         } finally {
@@ -38,4 +39,23 @@ public class Main {
           }
         }
   }
+
+    static void handleClient(Socket client) {
+        try {
+            InputStream inputStream = client.getInputStream();
+
+            byte[] buffer = new byte[1024];
+            int bytesRead;
+
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+
+                client.getOutputStream().write("+PONG\r\n".getBytes());
+            }
+
+            client.close();
+
+        } catch (IOException e) {
+            System.out.println("IOException: " + e.getMessage());
+        }
+    }
 }
