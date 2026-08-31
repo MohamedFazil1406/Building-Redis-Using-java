@@ -17,34 +17,31 @@ public class Main {
 
             CommandHandler handler = new CommandHandler();
 
-            // Test PING
             System.out.print(
-                    handler.handle(new String[]{"PING"})
+                    handler.handle(
+                            new String[]{"SET", "name", "Fazil", "EX", "7"}
+                    )
             );
 
-            // Test ECHO
+            // Immediately get
             System.out.print(
-                    handler.handle(new String[]{"ECHO", "hello"})
+                    handler.handle(
+                            new String[]{"GET", "name"}
+                    )
             );
 
-            // Test SET
-            System.out.print(
-                    handler.handle(new String[]{"SET", "name", "Fazil"})
-            );
+            // Wait 6 seconds
+            try {
+                Thread.sleep(6000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
 
-            // Test GET existing key
+            // Try again
             System.out.print(
-                    handler.handle(new String[]{"GET", "name"})
-            );
-
-            // Test GET non-existing key
-            System.out.print(
-                    handler.handle(new String[]{"GET", "age"})
-            );
-
-            // Test unknown command
-            System.out.print(
-                    handler.handle(new String[]{"ABC"})
+                    handler.handle(
+                            new String[]{"GET", "name"}
+                    )
             );
           // Since the tester restarts your program quite often, setting SO_REUSEADDR
           // ensures that we don't run into 'Address already in use' errors
