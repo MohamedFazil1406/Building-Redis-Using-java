@@ -1,10 +1,13 @@
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class CommandHandler {
 
     private final Map<String, String> data = new HashMap<>();
     private final Map<String, Long> expiry = new HashMap<>();
+    private final Map<String, List<String>> lists = new HashMap<>();
 
     public String handle(String[] tokens) {
 
@@ -65,6 +68,19 @@ public class CommandHandler {
 
                 yield "$" + value.length() + "\r\n"
                         + value + "\r\n";
+            }
+
+            case "RPUSH" -> {
+                String key = tokens[1];
+
+                List<String> list =
+                        lists.computeIfAbsent(key, k -> new ArrayList<>());
+
+                for (int i = 2; i < tokens.length; i++) {
+                    list.add(tokens[i]);
+                }
+
+                yield ":" + list.size() + "\r\n";
             }
 
             default -> "-ERR unknown command\r\n";
