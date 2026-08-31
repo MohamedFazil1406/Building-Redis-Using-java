@@ -16,27 +16,17 @@ public class Main {
           serverSocket = new ServerSocket(port);
 
             CommandHandler handler = new CommandHandler();
+
             System.out.print(
                     handler.handle(
                             new String[]{"RPUSH", "fruits", "apple", "mango"}
                     )
             );
 
+            // Remove from left
             System.out.print(
                     handler.handle(
-                            new String[]{"LPUSH", "fruits", "banana"}
-                    )
-            );
-
-            System.out.print(
-                    handler.handle(
-                            new String[]{"LLEN", "fruits"}
-                    )
-            );
-
-            System.out.print(
-                    handler.handle(
-                            new String[]{"LRANGE", "fruits", "0", "-1"}
+                            new String[]{"BLPOP", "fruits", "10"}
                     )
             );
 

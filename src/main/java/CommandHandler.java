@@ -8,6 +8,7 @@ public class CommandHandler {
     private final Map<String, String> data = new HashMap<>();
     private final Map<String, Long> expiry = new HashMap<>();
     private final Map<String, List<String>> lists = new HashMap<>();
+    private final Object listLock = new Object();
 
     public String handle(String[] tokens) {
 
@@ -73,14 +74,19 @@ public class CommandHandler {
             case "RPUSH" -> {
                 String key = tokens[1];
 
-                List<String> list =
-                        lists.computeIfAbsent(key, k -> new ArrayList<>());
+                synchronized (listLock) {
 
-                for (int i = 2; i < tokens.length; i++) {
-                    list.add(tokens[i]);
+                    List<String> list =
+                            lists.computeIfAbsent(key, k -> new ArrayList<>());
+
+                    for (int i = 2; i < tokens.length; i++) {
+                        list.add(tokens[i]);
+                    }
+
+                    listLock.notifyAll();
+
+                    yield ":" + list.size() + "\r\n";
                 }
-
-                yield ":" + list.size() + "\r\n";
             }
 
             case "LRANGE" -> {
@@ -154,6 +160,78 @@ public class CommandHandler {
                 }
 
                 yield ":" + list.size() + "\r\n";
+            }
+
+            case "LPOP" -> {
+                String key = tokens[1];
+
+                List<String> list = lists.get(key);
+
+                if (list == null || list.isEmpty()) {
+                    yield "$-1\r\n";
+                }
+
+                String value = list.remove(0);
+
+                yield "$" + value.length() + "\r\n"
+                        + value + "\r\n";
+            }
+
+            case "RPOP" -> {
+                String key = tokens[1];
+
+                List<String> list = lists.get(key);
+
+                if (list == null || list.isEmpty()) {
+                    yield "$-1\r\n";
+                }
+
+                String value = list.remove(list.size() - 1);
+
+                yield "$" + value.length() + "\r\n"
+                        + value + "\r\n";
+            }
+
+            case "BLPOP" -> {
+                String key = tokens[1];
+                long timeout = Long.parseLong(tokens[2]);
+
+                synchronized (listLock) {
+
+                    List<String> list =
+                            lists.computeIfAbsent(key, k -> new ArrayList<>());
+
+                    long timeoutMillis = timeout * 1000;
+                    long startTime = System.currentTimeMillis();
+
+                    while (list.isEmpty()) {
+
+                        long elapsed =
+                                System.currentTimeMillis() - startTime;
+
+                        long remaining =
+                                timeoutMillis - elapsed;
+
+                        if (remaining <= 0) {
+                            yield "*-1\r\n";
+                        }
+
+                        try {
+                            listLock.wait(remaining);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            yield "*-1\r\n";
+                        }
+                    }
+
+                    String value = list.remove(0);
+
+                    yield "*2\r\n"
+                            + "$" + key.length() + "\r\n"
+                            + key + "\r\n"
+                            + "$" + value.length() + "\r\n"
+                            + value + "\r\n";
+                }
             }
 
             default -> "-ERR unknown command\r\n";
