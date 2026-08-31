@@ -16,18 +16,31 @@ public class Main {
           serverSocket = new ServerSocket(port);
 
             CommandHandler handler = new CommandHandler();
-
-            String response = handler.handle(
-                    new String[]{"RPUSH", "fruits", "apple", "mango", "banana"}
+            System.out.print(
+                    handler.handle(
+                            new String[]{"RPUSH", "fruits", "apple", "mango"}
+                    )
             );
 
             System.out.print(
                     handler.handle(
-                            new String[]{"LRANGE", "fruits", "0", "2"}
+                            new String[]{"LPUSH", "fruits", "banana"}
                     )
             );
 
-            System.out.print(response);
+            System.out.print(
+                    handler.handle(
+                            new String[]{"LLEN", "fruits"}
+                    )
+            );
+
+            System.out.print(
+                    handler.handle(
+                            new String[]{"LRANGE", "fruits", "0", "-1"}
+                    )
+            );
+
+
 
             // Since the tester restarts your program quite often, setting SO_REUSEADDR
           // ensures that we don't run into 'Address already in use' errors

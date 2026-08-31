@@ -131,6 +131,31 @@ public class CommandHandler {
                 yield response.toString();
             }
 
+            case "LPUSH" -> {
+                String key = tokens[1];
+
+                List<String> list =
+                        lists.computeIfAbsent(key, k -> new ArrayList<>());
+
+                for (int i = 2; i < tokens.length; i++) {
+                    list.add(0, tokens[i]);
+                }
+
+                yield ":" + list.size() + "\r\n";
+            }
+
+            case "LLEN" -> {
+                String key = tokens[1];
+
+                List<String> list = lists.get(key);
+
+                if (list == null) {
+                    yield ":0\r\n";
+                }
+
+                yield ":" + list.size() + "\r\n";
+            }
+
             default -> "-ERR unknown command\r\n";
         };
     }
