@@ -14,6 +14,38 @@ public class Main {
         int port = 6379;
         try {
           serverSocket = new ServerSocket(port);
+
+            CommandHandler handler = new CommandHandler();
+
+            // Test PING
+            System.out.print(
+                    handler.handle(new String[]{"PING"})
+            );
+
+            // Test ECHO
+            System.out.print(
+                    handler.handle(new String[]{"ECHO", "hello"})
+            );
+
+            // Test SET
+            System.out.print(
+                    handler.handle(new String[]{"SET", "name", "Fazil"})
+            );
+
+            // Test GET existing key
+            System.out.print(
+                    handler.handle(new String[]{"GET", "name"})
+            );
+
+            // Test GET non-existing key
+            System.out.print(
+                    handler.handle(new String[]{"GET", "age"})
+            );
+
+            // Test unknown command
+            System.out.print(
+                    handler.handle(new String[]{"ABC"})
+            );
           // Since the tester restarts your program quite often, setting SO_REUSEADDR
           // ensures that we don't run into 'Address already in use' errors
           serverSocket.setReuseAddress(true);
@@ -25,6 +57,8 @@ public class Main {
 
                 new Thread(() -> handleClient(client)).start();
             }
+
+
 
 
         } catch (IOException e) {
