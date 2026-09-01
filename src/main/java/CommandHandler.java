@@ -677,6 +677,13 @@ public class CommandHandler {
 
                 yield "+OK\r\n";
             }
+            case "UNWATCH" -> {
+
+                watchedKeys.clear();
+                transactionAborted = false;
+
+                yield "+OK\r\n";
+            }
 
             default -> "-ERR unknown command\r\n";
         };
