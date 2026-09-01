@@ -10,6 +10,8 @@ public class CommandHandler {
     private final Object streamLock = new Object();
     private long lastStreamTime = 0;
     private long lastStreamSequence = 0;
+    private boolean inTransaction = false;
+    private final List<String[]> transactionQueue = new ArrayList<>();
 
     private int compareStreamIds(String a, String b) {
 
@@ -137,6 +139,15 @@ public class CommandHandler {
     public String handle(String[] tokens) {
 
         String command = tokens[0].toUpperCase();
+
+        if (inTransaction
+                && !command.equals("EXEC")
+                && !command.equals("DISCARD")) {
+
+            transactionQueue.add(tokens);
+
+            return "+QUEUED\r\n";
+        }
 
         return switch (command) {
 
@@ -588,6 +599,47 @@ public class CommandHandler {
                 } catch (NumberFormatException e) {
                     yield "-ERR value is not an integer or out of range\r\n";
                 }
+            }
+            case "MULTI" -> {
+                inTransaction = true;
+                yield "+OK\r\n";
+            }
+            case "EXEC" -> {
+
+                if (!inTransaction) {
+                    yield "-ERR EXEC without MULTI\r\n";
+                }
+
+                inTransaction = false;
+
+                StringBuilder response = new StringBuilder();
+
+                response.append("*")
+                        .append(transactionQueue.size())
+                        .append("\r\n");
+
+                for (String[] commands : transactionQueue) {
+                    response.append(handle(commands));
+                }
+
+                transactionQueue.clear();
+
+                yield response.toString();
+            }
+
+            case "DISCARD" -> {
+
+                if (!inTransaction) {
+                    yield "-ERR DISCARD without MULTI\r\n";
+                }
+
+                // Exit transaction mode
+                inTransaction = false;
+
+                // Remove all queued commands
+                transactionQueue.clear();
+
+                yield "+OK\r\n";
             }
 
             default -> "-ERR unknown command\r\n";
