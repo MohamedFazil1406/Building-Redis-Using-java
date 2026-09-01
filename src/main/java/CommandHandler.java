@@ -572,6 +572,24 @@ public class CommandHandler {
                 }
             }
 
+            case "INCR" -> {
+                String key = tokens[1];
+
+                String value = data.getOrDefault(key, "0");
+
+                try {
+                    long number = Long.parseLong(value);
+                    number++;
+
+                    data.put(key, String.valueOf(number));
+
+                    yield ":" + number + "\r\n";
+
+                } catch (NumberFormatException e) {
+                    yield "-ERR value is not an integer or out of range\r\n";
+                }
+            }
+
             default -> "-ERR unknown command\r\n";
         };
     }

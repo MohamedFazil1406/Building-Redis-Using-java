@@ -17,47 +17,13 @@ public class Main {
 
             CommandHandler handler = new CommandHandler();
 
+            handler.handle(new String[]{
+                    "SET", "counter", "10"
+            });
 
             System.out.print(
                     handler.handle(new String[]{
-                            "XADD",
-                            "mystream",
-                            "1000-0",
-                            "name",
-                            "Fazil"
-                    })
-            );
-
-            System.out.print(
-                    handler.handle(new String[]{
-                            "XADD",
-                            "mystream",
-                            "1001-0",
-                            "name",
-                            "Ahmed"
-                    })
-            );
-
-            System.out.print(
-                    handler.handle(new String[]{
-                            "XADD",
-                            "mystream",
-                            "1002-0",
-                            "name",
-                            "John"
-                    })
-            );
-
-
-
-            System.out.print(
-                    handler.handle(new String[]{
-                            "XREAD",
-                            "STREAMS",
-                            "mystream",
-                            "otherstream",
-                            "1000-0",
-                            "2000-0"
+                            "INCR", "counter"
                     })
             );
 
