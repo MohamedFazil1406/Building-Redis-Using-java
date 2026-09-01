@@ -7,6 +7,7 @@ public class CommandHandler {
     private final Map<String, List<String>> lists = new HashMap<>();
     private final Object listLock = new Object();
     private final Map<String, List<StreamEntry>> streams = new HashMap<>();
+    private final Object streamLock = new Object();
     private long lastStreamTime = 0;
     private long lastStreamSequence = 0;
 
@@ -26,6 +27,111 @@ public class CommandHandler {
         }
 
         return Long.compare(sequenceA, sequenceB);
+    }
+
+    private String buildXReadResponse(
+            String[] keys,
+            String[] startIds) {
+
+        StringBuilder response = new StringBuilder();
+
+        int streamCount = 0;
+
+        for (int i = 0; i < keys.length; i++) {
+
+            String key = keys[i];
+            String startId = startIds[i];
+
+            List<StreamEntry> entries = streams.get(key);
+
+            if (entries == null) {
+                continue;
+            }
+
+            List<StreamEntry> result = new ArrayList<>();
+
+            for (StreamEntry entry : entries) {
+
+                if (compareStreamIds(
+                        entry.getId(),
+                        startId) > 0) {
+
+                    result.add(entry);
+                }
+            }
+
+            if (result.isEmpty()) {
+                continue;
+            }
+
+            streamCount++;
+
+            // [stream name, entries]
+            response.append("*2\r\n");
+
+            // Stream name
+            response.append("$")
+                    .append(key.length())
+                    .append("\r\n")
+                    .append(key)
+                    .append("\r\n");
+
+            // Entries array
+            response.append("*")
+                    .append(result.size())
+                    .append("\r\n");
+
+            for (StreamEntry entry : result) {
+
+                // [id, fields]
+                response.append("*2\r\n");
+
+                String id = entry.getId();
+
+                // ID
+                response.append("$")
+                        .append(id.length())
+                        .append("\r\n")
+                        .append(id)
+                        .append("\r\n");
+
+                Map<String, String> fields =
+                        entry.getFields();
+
+                // Field/value array
+                response.append("*")
+                        .append(fields.size() * 2)
+                        .append("\r\n");
+
+                for (Map.Entry<String, String> field :
+                        fields.entrySet()) {
+
+                    String fieldName = field.getKey();
+                    String value = field.getValue();
+
+                    // Field
+                    response.append("$")
+                            .append(fieldName.length())
+                            .append("\r\n")
+                            .append(fieldName)
+                            .append("\r\n");
+
+                    // Value
+                    response.append("$")
+                            .append(value.length())
+                            .append("\r\n")
+                            .append(value)
+                            .append("\r\n");
+                }
+            }
+        }
+
+        if (streamCount == 0) {
+            return null;
+        }
+
+        return "*" + streamCount + "\r\n"
+                + response;
     }
 
     public String handle(String[] tokens) {
@@ -266,14 +372,11 @@ public class CommandHandler {
 
                 yield "+none\r\n";
             }
-
             case "XADD" -> {
                 String key = tokens[1];
                 String id = tokens[2];
 
-                // Generate ID when "*"
                 if (id.equals("*")) {
-
                     long currentTime = System.currentTimeMillis();
 
                     if (currentTime == lastStreamTime) {
@@ -289,17 +392,19 @@ public class CommandHandler {
                 Map<String, String> fields = new LinkedHashMap<>();
 
                 for (int i = 3; i < tokens.length; i += 2) {
-                    String field = tokens[i];
-                    String value = tokens[i + 1];
-
-                    fields.put(field, value);
+                    fields.put(tokens[i], tokens[i + 1]);
                 }
 
                 StreamEntry entry = new StreamEntry(id, fields);
 
-                streams
-                        .computeIfAbsent(key, k -> new ArrayList<>())
-                        .add(entry);
+                synchronized (streamLock) {
+                    streams
+                            .computeIfAbsent(key, k -> new ArrayList<>())
+                            .add(entry);
+
+                    // Wake up blocked XREAD clients
+                    streamLock.notifyAll();
+                }
 
                 yield "$" + id.length() + "\r\n"
                         + id + "\r\n";
@@ -374,9 +479,19 @@ public class CommandHandler {
 
             case "XREAD" -> {
 
+                boolean blocking = false;
+                long blockTime = 0;
+
                 int streamsIndex = -1;
 
+                // Find BLOCK and STREAMS
                 for (int i = 1; i < tokens.length; i++) {
+
+                    if (tokens[i].equalsIgnoreCase("BLOCK")) {
+                        blocking = true;
+                        blockTime = Long.parseLong(tokens[i + 1]);
+                    }
+
                     if (tokens[i].equalsIgnoreCase("STREAMS")) {
                         streamsIndex = i;
                         break;
@@ -390,94 +505,71 @@ public class CommandHandler {
                 int numberOfStreams =
                         (tokens.length - streamsIndex - 1) / 2;
 
-                StringBuilder response = new StringBuilder();
+                String[] keys = new String[numberOfStreams];
+                String[] startIds = new String[numberOfStreams];
 
-                int resultStreamCount = 0;
-
+                // Read stream names
                 for (int i = 0; i < numberOfStreams; i++) {
+                    keys[i] = tokens[streamsIndex + 1 + i];
+                }
 
-                    String key = tokens[streamsIndex + 1 + i];
-                    String startId =
+                // Read IDs
+                for (int i = 0; i < numberOfStreams; i++) {
+                    startIds[i] =
                             tokens[streamsIndex + 1 + numberOfStreams + i];
+                }
 
-                    List<StreamEntry> entries = streams.get(key);
+                long startTime = System.currentTimeMillis();
 
-                    if (entries == null) {
-                        continue;
-                    }
+                synchronized (streamLock) {
 
-                    List<StreamEntry> result = new ArrayList<>();
+                    while (true) {
 
-                    for (StreamEntry entry : entries) {
+                        String response =
+                                buildXReadResponse(keys, startIds);
 
-                        if (compareStreamIds(entry.getId(), startId) > 0) {
-                            result.add(entry);
+                        // We found new entries
+                        if (response != null) {
+                            yield response;
                         }
-                    }
 
-                    if (result.isEmpty()) {
-                        continue;
-                    }
+                        // Normal XREAD -> don't wait
+                        if (!blocking) {
+                            yield "*0\r\n";
+                        }
 
-                    resultStreamCount++;
+                        // BLOCK 0 -> wait forever
+                        if (blockTime == 0) {
 
-                    response.append("*2\r\n");
+                            try {
+                                streamLock.wait();
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                yield "*0\r\n";
+                            }
 
-                    response.append("$")
-                            .append(key.length())
-                            .append("\r\n")
-                            .append(key)
-                            .append("\r\n");
+                        } else {
 
-                    response.append("*")
-                            .append(result.size())
-                            .append("\r\n");
+                            long elapsed =
+                                    System.currentTimeMillis() - startTime;
 
-                    for (StreamEntry entry : result) {
+                            long remaining =
+                                    blockTime - elapsed;
 
-                        response.append("*2\r\n");
+                            // Timeout
+                            if (remaining <= 0) {
+                                yield "*-1\r\n";
+                            }
 
-                        String id = entry.getId();
-
-                        response.append("$")
-                                .append(id.length())
-                                .append("\r\n")
-                                .append(id)
-                                .append("\r\n");
-
-                        Map<String, String> fields = entry.getFields();
-
-                        response.append("*")
-                                .append(fields.size() * 2)
-                                .append("\r\n");
-
-                        for (Map.Entry<String, String> field :
-                                fields.entrySet()) {
-
-                            String fieldName = field.getKey();
-                            String value = field.getValue();
-
-                            response.append("$")
-                                    .append(fieldName.length())
-                                    .append("\r\n")
-                                    .append(fieldName)
-                                    .append("\r\n");
-
-                            response.append("$")
-                                    .append(value.length())
-                                    .append("\r\n")
-                                    .append(value)
-                                    .append("\r\n");
+                            try {
+                                streamLock.wait(remaining);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                yield "*0\r\n";
+                            }
                         }
                     }
                 }
-
-                if (resultStreamCount == 0) {
-                    yield "*0\r\n";
-                }
-
-                yield "*" + resultStreamCount + "\r\n"
-                        + response;
             }
 
             default -> "-ERR unknown command\r\n";

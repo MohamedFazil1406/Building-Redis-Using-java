@@ -48,17 +48,18 @@ public class Main {
                     })
             );
 
-            String response = handler.handle(new String[]{
-                    "XREAD",
-                    "STREAMS",
-                    "mystream",
-                    "1000-0"
-            });
-
-            System.out.print(response);
 
 
-
+            System.out.print(
+                    handler.handle(new String[]{
+                            "XREAD",
+                            "STREAMS",
+                            "mystream",
+                            "otherstream",
+                            "1000-0",
+                            "2000-0"
+                    })
+            );
 
 
             // Since the tester restarts your program quite often, setting SO_REUSEADDR
