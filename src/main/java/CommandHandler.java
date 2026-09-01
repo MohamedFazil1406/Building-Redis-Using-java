@@ -9,6 +9,7 @@ public class CommandHandler {
     private final Map<String, Long> expiry = new HashMap<>();
     private final Map<String, List<String>> lists = new HashMap<>();
     private final Object listLock = new Object();
+    private final Map<String, List<StreamEntry>> streams = new HashMap<>();
 
     public String handle(String[] tokens) {
 
@@ -232,6 +233,42 @@ public class CommandHandler {
                             + "$" + value.length() + "\r\n"
                             + value + "\r\n";
                 }
+            }
+
+
+            case "TYPE" -> {
+                String key = tokens[1];
+
+                if (data.containsKey(key)) {
+                    yield "+string\r\n";
+                }
+
+                if (lists.containsKey(key)) {
+                    yield "+list\r\n";
+                }
+
+                yield "+none\r\n";
+            }
+
+            case "XADD" -> {
+
+                String key = tokens[1];
+                String id = tokens[2];
+
+                Map<String, String> fields = new HashMap<>();
+
+                for (int i = 3; i < tokens.length; i += 2) {
+                    fields.put(tokens[i], tokens[i + 1]);
+                }
+
+                StreamEntry entry = new StreamEntry(id, fields);
+
+                streams
+                        .computeIfAbsent(key, k -> new ArrayList<>())
+                        .add(entry);
+
+                yield "$" + id.length() + "\r\n"
+                        + id + "\r\n";
             }
 
             default -> "-ERR unknown command\r\n";
