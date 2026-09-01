@@ -21,17 +21,6 @@ public class Main {
                     handler.handle(new String[]{"MULTI"})
             );
 
-            System.out.print(
-                    handler.handle(new String[]{
-                            "SET", "name", "Fazil"
-                    })
-            );
-
-            System.out.print(
-                    handler.handle(new String[]{
-                            "INCR", "counter"
-                    })
-            );
 
             System.out.print(
                     handler.handle(new String[]{"DISCARD"})

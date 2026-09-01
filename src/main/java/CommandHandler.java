@@ -11,7 +11,9 @@ public class CommandHandler {
     private long lastStreamTime = 0;
     private long lastStreamSequence = 0;
     private boolean inTransaction = false;
+    private boolean transactionAborted = false;
     private final List<String[]> transactionQueue = new ArrayList<>();
+    private final Set<String> watchedKeys = new HashSet<>();
 
     private int compareStreamIds(String a, String b) {
 
@@ -158,10 +160,15 @@ public class CommandHandler {
                             + tokens[1] + "\r\n";
 
             case "SET" -> {
+
                 String key = tokens[1];
                 String value = tokens[2];
 
                 data.put(key, value);
+
+                if (watchedKeys.contains(key) && !inTransaction) {
+                    transactionAborted = true;
+                }
 
                 if (tokens.length >= 5) {
 
@@ -169,10 +176,16 @@ public class CommandHandler {
                     long time = Long.parseLong(tokens[4]);
 
                     if (option.equals("EX")) {
-                        expiry.put(key, System.currentTimeMillis() + time * 1000);
+                        expiry.put(
+                                key,
+                                System.currentTimeMillis() + time * 1000
+                        );
                     }
                     else if (option.equals("PX")) {
-                        expiry.put(key, System.currentTimeMillis() + time);
+                        expiry.put(
+                                key,
+                                System.currentTimeMillis() + time
+                        );
                     }
                 }
 
@@ -601,7 +614,10 @@ public class CommandHandler {
                 }
             }
             case "MULTI" -> {
+
                 inTransaction = true;
+                transactionAborted = false;
+
                 yield "+OK\r\n";
             }
             case "EXEC" -> {
@@ -610,7 +626,17 @@ public class CommandHandler {
                     yield "-ERR EXEC without MULTI\r\n";
                 }
 
-                inTransaction = false;
+                // A watched key was modified
+                if (transactionAborted) {
+
+                    inTransaction = false;
+                    transactionAborted = false;
+
+                    transactionQueue.clear();
+                    watchedKeys.clear();
+
+                    yield "*-1\r\n";
+                }
 
                 StringBuilder response = new StringBuilder();
 
@@ -618,26 +644,36 @@ public class CommandHandler {
                         .append(transactionQueue.size())
                         .append("\r\n");
 
-                for (String[] commands : transactionQueue) {
-                    response.append(handle(commands));
+                inTransaction = false;
+
+                for (String[] queuedCommand : transactionQueue) {
+                    response.append(handle(queuedCommand));
                 }
 
                 transactionQueue.clear();
+                watchedKeys.clear();
 
                 yield response.toString();
             }
-
             case "DISCARD" -> {
 
                 if (!inTransaction) {
                     yield "-ERR DISCARD without MULTI\r\n";
                 }
 
-                // Exit transaction mode
                 inTransaction = false;
+                transactionAborted = false;
 
-                // Remove all queued commands
                 transactionQueue.clear();
+                watchedKeys.clear();
+
+                yield "+OK\r\n";
+            }
+
+            case "WATCH" -> {
+                for (int i = 1; i < tokens.length; i++) {
+                    watchedKeys.add(tokens[i]);
+                }
 
                 yield "+OK\r\n";
             }
