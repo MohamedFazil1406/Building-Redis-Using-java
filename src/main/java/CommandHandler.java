@@ -372,6 +372,114 @@ public class CommandHandler {
                 yield response.toString();
             }
 
+            case "XREAD" -> {
+
+                int streamsIndex = -1;
+
+                for (int i = 1; i < tokens.length; i++) {
+                    if (tokens[i].equalsIgnoreCase("STREAMS")) {
+                        streamsIndex = i;
+                        break;
+                    }
+                }
+
+                if (streamsIndex == -1) {
+                    yield "-ERR syntax error\r\n";
+                }
+
+                int numberOfStreams =
+                        (tokens.length - streamsIndex - 1) / 2;
+
+                StringBuilder response = new StringBuilder();
+
+                int resultStreamCount = 0;
+
+                for (int i = 0; i < numberOfStreams; i++) {
+
+                    String key = tokens[streamsIndex + 1 + i];
+                    String startId =
+                            tokens[streamsIndex + 1 + numberOfStreams + i];
+
+                    List<StreamEntry> entries = streams.get(key);
+
+                    if (entries == null) {
+                        continue;
+                    }
+
+                    List<StreamEntry> result = new ArrayList<>();
+
+                    for (StreamEntry entry : entries) {
+
+                        if (compareStreamIds(entry.getId(), startId) > 0) {
+                            result.add(entry);
+                        }
+                    }
+
+                    if (result.isEmpty()) {
+                        continue;
+                    }
+
+                    resultStreamCount++;
+
+                    response.append("*2\r\n");
+
+                    response.append("$")
+                            .append(key.length())
+                            .append("\r\n")
+                            .append(key)
+                            .append("\r\n");
+
+                    response.append("*")
+                            .append(result.size())
+                            .append("\r\n");
+
+                    for (StreamEntry entry : result) {
+
+                        response.append("*2\r\n");
+
+                        String id = entry.getId();
+
+                        response.append("$")
+                                .append(id.length())
+                                .append("\r\n")
+                                .append(id)
+                                .append("\r\n");
+
+                        Map<String, String> fields = entry.getFields();
+
+                        response.append("*")
+                                .append(fields.size() * 2)
+                                .append("\r\n");
+
+                        for (Map.Entry<String, String> field :
+                                fields.entrySet()) {
+
+                            String fieldName = field.getKey();
+                            String value = field.getValue();
+
+                            response.append("$")
+                                    .append(fieldName.length())
+                                    .append("\r\n")
+                                    .append(fieldName)
+                                    .append("\r\n");
+
+                            response.append("$")
+                                    .append(value.length())
+                                    .append("\r\n")
+                                    .append(value)
+                                    .append("\r\n");
+                        }
+                    }
+                }
+
+                if (resultStreamCount == 0) {
+                    yield "*0\r\n";
+                }
+
+                yield "*" + resultStreamCount + "\r\n"
+                        + response;
+            }
+
             default -> "-ERR unknown command\r\n";
         };
     }

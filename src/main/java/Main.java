@@ -48,14 +48,16 @@ public class Main {
                     })
             );
 
-            System.out.print(
-                    handler.handle(new String[]{
-                            "XRANGE",
-                            "mystream",
-                            "1000-0",
-                            "1002-0"
-                    })
-            );
+            String response = handler.handle(new String[]{
+                    "XREAD",
+                    "STREAMS",
+                    "mystream",
+                    "1000-0"
+            });
+
+            System.out.print(response);
+
+
 
 
 
