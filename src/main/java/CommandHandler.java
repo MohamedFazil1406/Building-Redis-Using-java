@@ -1,7 +1,4 @@
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class CommandHandler {
 
@@ -10,6 +7,26 @@ public class CommandHandler {
     private final Map<String, List<String>> lists = new HashMap<>();
     private final Object listLock = new Object();
     private final Map<String, List<StreamEntry>> streams = new HashMap<>();
+    private long lastStreamTime = 0;
+    private long lastStreamSequence = 0;
+
+    private int compareStreamIds(String a, String b) {
+
+        String[] first = a.split("-");
+        String[] second = b.split("-");
+
+        long timeA = Long.parseLong(first[0]);
+        long sequenceA = Long.parseLong(first[1]);
+
+        long timeB = Long.parseLong(second[0]);
+        long sequenceB = Long.parseLong(second[1]);
+
+        if (timeA != timeB) {
+            return Long.compare(timeA, timeB);
+        }
+
+        return Long.compare(sequenceA, sequenceB);
+    }
 
     public String handle(String[] tokens) {
 
@@ -251,14 +268,31 @@ public class CommandHandler {
             }
 
             case "XADD" -> {
-
                 String key = tokens[1];
                 String id = tokens[2];
 
-                Map<String, String> fields = new HashMap<>();
+                // Generate ID when "*"
+                if (id.equals("*")) {
+
+                    long currentTime = System.currentTimeMillis();
+
+                    if (currentTime == lastStreamTime) {
+                        lastStreamSequence++;
+                    } else {
+                        lastStreamTime = currentTime;
+                        lastStreamSequence = 0;
+                    }
+
+                    id = lastStreamTime + "-" + lastStreamSequence;
+                }
+
+                Map<String, String> fields = new LinkedHashMap<>();
 
                 for (int i = 3; i < tokens.length; i += 2) {
-                    fields.put(tokens[i], tokens[i + 1]);
+                    String field = tokens[i];
+                    String value = tokens[i + 1];
+
+                    fields.put(field, value);
                 }
 
                 StreamEntry entry = new StreamEntry(id, fields);
@@ -269,6 +303,73 @@ public class CommandHandler {
 
                 yield "$" + id.length() + "\r\n"
                         + id + "\r\n";
+            }
+
+            case "XRANGE" -> {
+                String key = tokens[1];
+                String start = tokens[2];
+                String end = tokens[3];
+
+                List<StreamEntry> entries = streams.get(key);
+
+                if (entries == null) {
+                    yield "*0\r\n";
+                }
+
+                List<StreamEntry> result = new ArrayList<>();
+
+                for (StreamEntry entry : entries) {
+
+                    String id = entry.getId();
+
+                    if (compareStreamIds(id, start) >= 0 &&
+                            compareStreamIds(id, end) <= 0) {
+
+                        result.add(entry);
+                    }
+                }
+
+                StringBuilder response = new StringBuilder();
+
+                response.append("*")
+                        .append(result.size())
+                        .append("\r\n");
+
+                for (StreamEntry entry : result) {
+
+                    response.append("*2\r\n");
+
+                    String id = entry.getId();
+
+                    response.append("$")
+                            .append(id.length())
+                            .append("\r\n")
+                            .append(id)
+                            .append("\r\n");
+
+                    Map<String, String> fields = entry.getFields();
+
+                    response.append("*")
+                            .append(fields.size() * 2)
+                            .append("\r\n");
+
+                    for (Map.Entry<String, String> field : fields.entrySet()) {
+
+                        response.append("$")
+                                .append(field.getKey().length())
+                                .append("\r\n")
+                                .append(field.getKey())
+                                .append("\r\n");
+
+                        response.append("$")
+                                .append(field.getValue().length())
+                                .append("\r\n")
+                                .append(field.getValue())
+                                .append("\r\n");
+                    }
+                }
+
+                yield response.toString();
             }
 
             default -> "-ERR unknown command\r\n";

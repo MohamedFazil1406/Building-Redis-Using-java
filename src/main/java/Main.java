@@ -17,17 +17,44 @@ public class Main {
 
             CommandHandler handler = new CommandHandler();
 
+
             System.out.print(
-                    handler.handle(
-                            new String[]{"RPUSH", "fruits", "apple", "mango"}
-                    )
+                    handler.handle(new String[]{
+                            "XADD",
+                            "mystream",
+                            "1000-0",
+                            "name",
+                            "Fazil"
+                    })
             );
 
-            // Remove from left
             System.out.print(
-                    handler.handle(
-                            new String[]{"BLPOP", "fruits", "10"}
-                    )
+                    handler.handle(new String[]{
+                            "XADD",
+                            "mystream",
+                            "1001-0",
+                            "name",
+                            "Ahmed"
+                    })
+            );
+
+            System.out.print(
+                    handler.handle(new String[]{
+                            "XADD",
+                            "mystream",
+                            "1002-0",
+                            "name",
+                            "John"
+                    })
+            );
+
+            System.out.print(
+                    handler.handle(new String[]{
+                            "XRANGE",
+                            "mystream",
+                            "1000-0",
+                            "1002-0"
+                    })
             );
 
 
