@@ -4,72 +4,73 @@ import java.net.ServerSocket;
 import java.net.Socket;
 
 public class Main {
-  public static void main(String[] args){
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    System.out.println("Logs from your program will appear here!");
 
-    //  Uncomment the code below to pass the first stage
-        ServerSocket serverSocket = null;
-        Socket clientSocket = null;
+    public static void main(String[] args) {
+
+        System.out.println("Logs from your program will appear here!");
+
         int port = 6379;
-        try {
-          serverSocket = new ServerSocket(port);
+        boolean isReplica = false;
 
-            CommandHandler handler = new CommandHandler();
+        // Read command-line arguments
+        for (int i = 0; i < args.length; i++) {
 
-            System.out.print(
-                    handler.handle(new String[]{"MULTI"})
-            );
+            if (args[i].equals("--port")) {
+                port = Integer.parseInt(args[i + 1]);
+            }
 
+            if (args[i].equals("--replicaof")) {
+                isReplica = true;
+            }
+        }
 
-            System.out.print(
-                    handler.handle(new String[]{"DISCARD"})
-            );
+        try (ServerSocket serverSocket = new ServerSocket(port)) {
 
-            // Since the tester restarts your program quite often, setting SO_REUSEADDR
-          // ensures that we don't run into 'Address already in use' errors
-          serverSocket.setReuseAddress(true);
-          // Wait for connection from client
+            serverSocket.setReuseAddress(true);
+
+            System.out.println("Redis server running on port " + port);
+
+            // Pass replica information to CommandHandler
+            CommandHandler handler = new CommandHandler(isReplica);
 
             while (true) {
 
                 Socket client = serverSocket.accept();
 
-                new Thread(() -> handleClient(client)).start();
+                new Thread(() -> handleClient(client, handler)).start();
             }
-
-
-
 
         } catch (IOException e) {
-          System.out.println("IOException: " + e.getMessage());
-        } finally {
-          try {
-            if (clientSocket != null) {
-              clientSocket.close();
-            }
-          } catch (IOException e) {
-            System.out.println("IOException: " + e.getMessage());
-          }
+            e.printStackTrace();
         }
-  }
+    }
 
-    static void handleClient(Socket client) {
+    static void handleClient(Socket client, CommandHandler handler) {
+
         try {
+
             InputStream inputStream = client.getInputStream();
 
             byte[] buffer = new byte[1024];
+
             int bytesRead;
 
             while ((bytesRead = inputStream.read(buffer)) != -1) {
 
-                client.getOutputStream().write("+PONG\r\n".getBytes());
+                String request =
+                        new String(buffer, 0, bytesRead);
+
+                System.out.println("Received: " + request);
+
+                // Temporary response
+                client.getOutputStream()
+                        .write("+PONG\r\n".getBytes());
             }
 
             client.close();
 
         } catch (IOException e) {
-            System.out.println("IOException: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 }

@@ -14,6 +14,11 @@ public class CommandHandler {
     private boolean transactionAborted = false;
     private final List<String[]> transactionQueue = new ArrayList<>();
     private final Set<String> watchedKeys = new HashSet<>();
+    private final boolean isReplica;
+
+    public CommandHandler(boolean isReplica) {
+        this.isReplica = isReplica;
+    }
 
     private int compareStreamIds(String a, String b) {
 
@@ -683,6 +688,32 @@ public class CommandHandler {
                 transactionAborted = false;
 
                 yield "+OK\r\n";
+            }
+
+            case "INFO" -> {
+
+                if (tokens.length > 1 &&
+                        tokens[1].equalsIgnoreCase("replication")) {
+
+                    String response =
+                            "# Replication\r\n" +
+                                    (isReplica
+                                            ? "role:slave\r\n"
+                                            : "role:master\r\n");
+
+                    yield "$" + response.length() +
+                            "\r\n" +
+                            response +
+                            "\r\n";
+                }
+
+                yield "";
+            }
+            case "REPLCONF" -> {
+                yield "+OK\r\n";
+            }
+            case "PSYNC" -> {
+                yield "+FULLRESYNC 8371b4a2 0\r\n";
             }
 
             default -> "-ERR unknown command\r\n";
