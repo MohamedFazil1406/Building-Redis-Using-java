@@ -718,6 +718,16 @@ public class CommandHandler {
                 yield "";
             }
             case "REPLCONF" -> {
+
+                if (tokens.length >= 2 &&
+                        tokens[1].equalsIgnoreCase("GETACK")) {
+
+                    yield "*3\r\n" +
+                            "$8\r\nREPLCONF\r\n" +
+                            "$3\r\nACK\r\n" +
+                            "$1\r\n0\r\n";
+                }
+
                 yield "+OK\r\n";
             }
             case "PSYNC" -> {

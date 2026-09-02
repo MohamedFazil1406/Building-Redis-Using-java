@@ -1,20 +1,25 @@
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.io.*;
+import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 public class Main {
 
-    // Empty RDB file
-    // Replace this Base64 string with the empty RDB Base64
-    // provided by the CodeCrafters challenge.
+    // Empty RDB
     static final byte[] EMPTY_RDB =
             Base64.getDecoder().decode(
                     "UkVESVMwMDEwOAAAAAAAAA=="
             );
+
+    static class ParsedCommand {
+        String[] tokens;
+        long bytes;
+
+        ParsedCommand(String[] tokens, long bytes) {
+            this.tokens = tokens;
+            this.bytes = bytes;
+        }
+    }
 
 
     public static void main(String[] args) {
@@ -34,7 +39,11 @@ public class Main {
 
         long replicationOffset = 0;
 
-        // Read command-line arguments
+
+        // ============================================
+        // COMMAND LINE ARGUMENTS
+        // ============================================
+
         for (int i = 0; i < args.length; i++) {
 
             if (args[i].equals("--port")) {
@@ -56,7 +65,6 @@ public class Main {
         }
 
 
-        // Start server first
         try (ServerSocket serverSocket =
                      new ServerSocket(port)) {
 
@@ -67,6 +75,7 @@ public class Main {
                             + port
             );
 
+
             CommandHandler handler =
                     new CommandHandler(
                             isReplica,
@@ -75,7 +84,10 @@ public class Main {
                     );
 
 
-            // Connect to master in another thread
+            // ============================================
+            // START REPLICATION
+            // ============================================
+
             if (isReplica) {
 
                 String finalMasterHost = masterHost;
@@ -86,13 +98,17 @@ public class Main {
                         connectToMaster(
                                 finalMasterHost,
                                 finalMasterPort,
-                                finalReplicaPort
+                                finalReplicaPort,
+                                handler
                         )
                 ).start();
             }
 
 
-            // Accept clients
+            // ============================================
+            // ACCEPT CLIENT CONNECTIONS
+            // ============================================
+
             while (true) {
 
                 Socket client =
@@ -113,14 +129,15 @@ public class Main {
     }
 
 
-    // =====================================================
+    // ====================================================
     // REPLICA -> MASTER
-    // =====================================================
+    // ====================================================
 
     static void connectToMaster(
             String host,
             int masterPort,
-            int replicaPort
+            int replicaPort,
+            CommandHandler handler
     ) {
 
         try {
@@ -138,6 +155,7 @@ public class Main {
                             + masterPort
             );
 
+
             InputStream input =
                     master.getInputStream();
 
@@ -145,22 +163,16 @@ public class Main {
                     master.getOutputStream();
 
 
-            // =================================================
+            // ============================================
             // 1. PING
-            // =================================================
+            // ============================================
 
             String ping =
                     "*1\r\n" +
                             "$4\r\n" +
                             "PING\r\n";
 
-            output.write(
-                    ping.getBytes(
-                            StandardCharsets.UTF_8
-                    )
-            );
-
-            output.flush();
+            send(output, ping);
 
             System.out.println(
                     "Master: "
@@ -168,9 +180,9 @@ public class Main {
             );
 
 
-            // =================================================
+            // ============================================
             // 2. REPLCONF listening-port
-            // =================================================
+            // ============================================
 
             String portString =
                     String.valueOf(replicaPort);
@@ -187,13 +199,7 @@ public class Main {
                             portString +
                             "\r\n";
 
-            output.write(
-                    replconfPort.getBytes(
-                            StandardCharsets.UTF_8
-                    )
-            );
-
-            output.flush();
+            send(output, replconfPort);
 
             System.out.println(
                     "Master: "
@@ -201,9 +207,9 @@ public class Main {
             );
 
 
-            // =================================================
+            // ============================================
             // 3. REPLCONF capa psync2
-            // =================================================
+            // ============================================
 
             String replconfCapa =
                     "*3\r\n" +
@@ -214,13 +220,7 @@ public class Main {
                             "$6\r\n" +
                             "psync2\r\n";
 
-            output.write(
-                    replconfCapa.getBytes(
-                            StandardCharsets.UTF_8
-                    )
-            );
-
-            output.flush();
+            send(output, replconfCapa);
 
             System.out.println(
                     "Master: "
@@ -228,9 +228,9 @@ public class Main {
             );
 
 
-            // =================================================
+            // ============================================
             // 4. PSYNC ? -1
-            // =================================================
+            // ============================================
 
             String psync =
                     "*3\r\n" +
@@ -241,25 +241,35 @@ public class Main {
                             "$2\r\n" +
                             "-1\r\n";
 
-            output.write(
-                    psync.getBytes(
-                            StandardCharsets.UTF_8
-                    )
+            send(output, psync);
+
+
+            // FULLRESYNC
+            System.out.println(
+                    "Master: "
+                            + readResponse(input)
             );
 
-            output.flush();
+            String command =
+                    "*3\r\n" +
+                            "$8\r\n" +
+                            "REPLCONF\r\n" +
+                            "$6\r\n" +
+                            "GETACK\r\n" +
+                            "$1\r\n" +
+                            "*\r\n";
 
+            send(output,command);
 
-            // Read FULLRESYNC
             System.out.println(
                     "Master: "
                             + readResponse(input)
             );
 
 
-            // =================================================
-            // 5. Read RDB
-            // =================================================
+            // ============================================
+            // 5. READ RDB
+            // ============================================
 
             int firstByte =
                     input.read();
@@ -273,7 +283,10 @@ public class Main {
                         Integer.parseInt(lengthString);
 
                 byte[] rdb =
-                        input.readNBytes(rdbLength);
+                        readExactly(
+                                input,
+                                rdbLength
+                        );
 
                 System.out.println(
                         "Received RDB: "
@@ -282,7 +295,23 @@ public class Main {
                 );
             }
 
-            master.close();
+
+            // ============================================
+            // 6. KEEP CONNECTION OPEN
+            // ============================================
+
+            // IMPORTANT:
+            // Do NOT close master here.
+            //
+            // The master will continue sending commands
+            // through this same connection.
+
+
+            handleReplicationStream(
+                    master,
+                    handler
+            );
+
 
         } catch (IOException e) {
 
@@ -294,9 +323,125 @@ public class Main {
     }
 
 
-    // =====================================================
-    // MASTER CLIENT HANDLER
-    // =====================================================
+    // ====================================================
+    // PROCESS COMMANDS FROM MASTER
+    // ====================================================
+
+    static void handleReplicationStream(
+            Socket master,
+            CommandHandler handler
+    ) throws IOException {
+
+        InputStream input =
+                master.getInputStream();
+
+        OutputStream output =
+                master.getOutputStream();
+
+
+        long replicationOffset = 0;
+
+
+        while (true) {
+
+            ParsedCommand command =
+                    parseRESPWithLength(input);
+
+
+            if (command == null) {
+                break;
+            }
+
+
+            String[] tokens =
+                    command.tokens;
+
+
+            System.out.println(
+                    "Master command: "
+                            + String.join(
+                            " ",
+                            tokens
+                    )
+            );
+
+
+            // ============================================
+            // GETACK
+            // ============================================
+
+            if (tokens.length >= 2
+                    && tokens[0].equalsIgnoreCase("REPLCONF")
+                    && tokens[1].equalsIgnoreCase("GETACK")) {
+
+
+                // IMPORTANT:
+                // Send current offset BEFORE adding
+                // the GETACK command itself.
+
+                String ack =
+                        "*3\r\n" +
+                                "$8\r\n" +
+                                "REPLCONF\r\n" +
+                                "$3\r\n" +
+                                "ACK\r\n" +
+                                "$" +
+                                String.valueOf(
+                                        String.valueOf(
+                                                replicationOffset
+                                        ).length()
+                                ) +
+                                "\r\n" +
+                                replicationOffset +
+                                "\r\n";
+
+
+                send(output, ack);
+
+
+                System.out.println(
+                        "Sent: REPLCONF ACK "
+                                + replicationOffset
+                );
+
+
+                // Now count GETACK itself
+                replicationOffset +=
+                        command.bytes;
+
+
+                System.out.println(
+                        "Offset: "
+                                + replicationOffset
+                );
+
+                continue;
+            }
+
+
+            // ============================================
+            // NORMAL MASTER COMMAND
+            // ============================================
+
+            handler.handle(tokens);
+
+
+            // Count the entire RESP command
+            replicationOffset +=
+                    command.bytes;
+
+
+            System.out.println(
+                    "Offset: "
+                            + replicationOffset
+            );
+        }
+    }
+
+
+    // ====================================================
+    // NORMAL CLIENT
+    // ====================================================
 
     static void handleClient(
             Socket client,
@@ -314,12 +459,17 @@ public class Main {
 
             while (true) {
 
-                String[] tokens =
-                        parseRESP(input);
+                ParsedCommand command =
+                        parseRESPWithLength(input);
 
-                if (tokens == null) {
+
+                if (command == null) {
                     break;
                 }
+
+
+                String[] tokens =
+                        command.tokens;
 
 
                 System.out.println(
@@ -342,7 +492,6 @@ public class Main {
                 );
 
 
-                // Send normal command response
                 output.write(
                         response.getBytes(
                                 StandardCharsets.UTF_8
@@ -352,21 +501,21 @@ public class Main {
                 output.flush();
 
 
-                // =================================================
-                // PSYNC -> send RDB
-                // =================================================
+                // ========================================
+                // PSYNC -> SEND RDB
+                // ========================================
 
-                if (tokens.length > 0 &&
-                        tokens[0].equalsIgnoreCase("PSYNC")) {
+                if (tokens.length > 0
+                        && tokens[0].equalsIgnoreCase("PSYNC")) {
 
                     byte[] rdb =
                             EMPTY_RDB;
 
 
                     String header =
-                            "$" +
-                                    rdb.length +
-                                    "\r\n";
+                            "$"
+                                    + rdb.length
+                                    + "\r\n";
 
 
                     output.write(
@@ -376,8 +525,6 @@ public class Main {
                     );
 
 
-                    // IMPORTANT:
-                    // Send binary bytes directly
                     output.write(rdb);
 
                     output.flush();
@@ -391,38 +538,60 @@ public class Main {
                 }
             }
 
+
             client.close();
 
         } catch (IOException e) {
 
-            e.printStackTrace();
+            System.out.println(
+                    "Client error: "
+                            + e.getMessage()
+            );
         }
     }
 
 
-    // =====================================================
-    // RESP PARSER
-    // =====================================================
+    // ====================================================
+    // RESP PARSER WITH BYTE COUNT
+    // ====================================================
 
-    static String[] parseRESP(
+    static ParsedCommand parseRESPWithLength(
             InputStream input
     ) throws IOException {
 
         int firstByte =
                 input.read();
 
+
         if (firstByte == -1) {
             return null;
         }
+
 
         if (firstByte != '*') {
             return null;
         }
 
 
+        long bytes =
+                1;
+
+
+        // Read number of arguments
+        String countLine =
+                readLineCounting(
+                        input
+                );
+
+
+        bytes +=
+                countLine.length()
+                        + 2;
+
+
         int numberOfArguments =
                 Integer.parseInt(
-                        readLine(input)
+                        countLine
                 );
 
 
@@ -434,27 +603,52 @@ public class Main {
              i < numberOfArguments;
              i++) {
 
+
             int type =
                     input.read();
+
 
             if (type != '$') {
                 return null;
             }
 
 
+            bytes++;
+
+
+            String lengthLine =
+                    readLineCounting(
+                            input
+                    );
+
+
+            bytes +=
+                    lengthLine.length()
+                            + 2;
+
+
             int length =
                     Integer.parseInt(
-                            readLine(input)
+                            lengthLine
                     );
 
 
             byte[] data =
-                    input.readNBytes(length);
+                    readExactly(
+                            input,
+                            length
+                    );
 
 
-            // Consume \r\n
+            bytes += length;
+
+
+            // Consume \r\n after value
             input.read();
             input.read();
+
+
+            bytes += 2;
 
 
             tokens[i] =
@@ -465,15 +659,26 @@ public class Main {
         }
 
 
-        return tokens;
+        return new ParsedCommand(
+                tokens,
+                bytes
+        );
     }
 
 
-    // =====================================================
+    // ====================================================
     // READ LINE
-    // =====================================================
+    // ====================================================
 
     static String readLine(
+            InputStream input
+    ) throws IOException {
+
+        return readLineCounting(input);
+    }
+
+
+    static String readLineCounting(
             InputStream input
     ) throws IOException {
 
@@ -491,18 +696,20 @@ public class Main {
 
 
             if (current == -1) {
-                throw new IOException(
+
+                throw new EOFException(
                         "Connection closed"
                 );
             }
 
 
-            if (previous == '\r' &&
-                    current == '\n') {
+            if (previous == '\r'
+                    && current == '\n') {
 
                 result.setLength(
                         result.length() - 1
                 );
+
 
                 return result.toString();
             }
@@ -512,14 +719,76 @@ public class Main {
                     (char) current
             );
 
+
             previous = current;
         }
     }
 
 
-    // =====================================================
+    // ====================================================
+    // READ EXACT NUMBER OF BYTES
+    // ====================================================
+
+    static byte[] readExactly(
+            InputStream input,
+            int length
+    ) throws IOException {
+
+        byte[] data =
+                new byte[length];
+
+
+        int total = 0;
+
+
+        while (total < length) {
+
+            int n =
+                    input.read(
+                            data,
+                            total,
+                            length - total
+                    );
+
+
+            if (n == -1) {
+
+                throw new EOFException(
+                        "Connection closed while reading"
+                );
+            }
+
+
+            total += n;
+        }
+
+
+        return data;
+    }
+
+
+    // ====================================================
+    // SEND
+    // ====================================================
+
+    static void send(
+            OutputStream output,
+            String command
+    ) throws IOException {
+
+        output.write(
+                command.getBytes(
+                        StandardCharsets.UTF_8
+                )
+        );
+
+        output.flush();
+    }
+
+
+    // ====================================================
     // READ MASTER RESPONSE
-    // =====================================================
+    // ====================================================
 
     static String readResponse(
             InputStream input
@@ -545,11 +814,13 @@ public class Main {
 
         int ch;
 
+
         while ((ch = input.read()) != -1) {
 
             response.append(
                     (char) ch
             );
+
 
             if (ch == '\n') {
                 break;
