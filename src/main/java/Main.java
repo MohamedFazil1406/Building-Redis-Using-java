@@ -2,14 +2,21 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Main {
-
     // Empty RDB
     static final byte[] EMPTY_RDB =
             Base64.getDecoder().decode(
                     "UkVESVMwMDEwOAAAAAAAAA=="
             );
+
+    static AtomicInteger connectedReplicas =
+            new AtomicInteger(0);
+
+    static String dir = null;
+    static String dbfilename = null;
+    static boolean isReplicaConnection = false;
 
     static class ParsedCommand {
         String[] tokens;
@@ -50,6 +57,14 @@ public class Main {
                 port = Integer.parseInt(args[i + 1]);
             }
 
+            if (args[i].equals("--dir")) {
+                dir = args[i + 1];
+            }
+
+            if (args[i].equals("--dbfilename")) {
+                dbfilename = args[i + 1];
+            }
+
             if (args[i].equals("--replicaof")) {
 
                 isReplica = true;
@@ -80,7 +95,10 @@ public class Main {
                     new CommandHandler(
                             isReplica,
                             replicationId,
-                            replicationOffset
+                            replicationOffset,
+                            connectedReplicas,
+                            dir,
+                            dbfilename
                     );
 
 
@@ -508,6 +526,16 @@ public class Main {
                 if (tokens.length > 0
                         && tokens[0].equalsIgnoreCase("PSYNC")) {
 
+                    connectedReplicas.incrementAndGet();
+
+                    System.out.println(
+                            "PSYNC received"
+                    );
+
+                    System.out.println(
+                            "Connected replicas: "
+                                    + connectedReplicas.get()
+                    );
                     byte[] rdb =
                             EMPTY_RDB;
 

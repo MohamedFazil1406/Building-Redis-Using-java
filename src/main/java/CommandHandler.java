@@ -1,4 +1,6 @@
+import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class CommandHandler {
 
@@ -17,13 +19,24 @@ public class CommandHandler {
     private final boolean isReplica;
     private final String replicationId;
     private final long replicationOffset;
+    private final AtomicInteger connectedReplicas;
+    private final String dir;
+    private final String dbfilename;
 
-    public CommandHandler(boolean isReplica, String replicationId,
-                          long replicationOffset) {
+    public CommandHandler(
+            boolean isReplica,
+            String replicationId,
+            long replicationOffset,
+            AtomicInteger connectedReplicas,
+            String dir,
+            String dbfilename) {
 
         this.isReplica = isReplica;
         this.replicationId = replicationId;
         this.replicationOffset = replicationOffset;
+        this.connectedReplicas = connectedReplicas;
+        this.dir=dir;
+        this.dbfilename=dbfilename;
     }
 
     private int compareStreamIds(String a, String b) {
@@ -160,6 +173,51 @@ public class CommandHandler {
             transactionQueue.add(tokens);
 
             return "+QUEUED\r\n";
+        }
+
+        if (tokens[0].equalsIgnoreCase("CONFIG")) {
+
+            if (tokens.length >= 3
+                    && tokens[1].equalsIgnoreCase("GET")) {
+
+                String parameter = tokens[2];
+
+                if (parameter.equalsIgnoreCase("dir")) {
+
+                    String value =
+                            dir == null ? "" : dir;
+
+                    return "*2\r\n" +
+                            "$3\r\n" +
+                            "dir\r\n" +
+                            "$" +
+                            value.getBytes(
+                                    StandardCharsets.UTF_8
+                            ).length +
+                            "\r\n" +
+                            value +
+                            "\r\n";
+                }
+
+                if (parameter.equalsIgnoreCase("dbfilename")) {
+
+                    String value =
+                            dbfilename == null
+                                    ? ""
+                                    : dbfilename;
+
+                    return "*2\r\n" +
+                            "$10\r\n" +
+                            "dbfilename\r\n" +
+                            "$" +
+                            value.getBytes(
+                                    StandardCharsets.UTF_8
+                            ).length +
+                            "\r\n" +
+                            value +
+                            "\r\n";
+                }
+            }
         }
 
         return switch (command) {
@@ -732,6 +790,10 @@ public class CommandHandler {
             }
             case "PSYNC" -> {
                 yield "+FULLRESYNC " + replicationId + " " + replicationOffset + "\r\n";
+            }
+
+            case "WAIT" -> {
+                yield ":" + connectedReplicas.get() + "\r\n";
             }
 
             default -> "-ERR unknown command\r\n";
