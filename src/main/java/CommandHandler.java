@@ -721,7 +721,7 @@ public class CommandHandler {
                 yield "+OK\r\n";
             }
             case "PSYNC" -> {
-                yield "+FULLRESYNC 8371b4a2 0\r\n";
+                yield "+FULLRESYNC " + replicationId + " " + replicationOffset + "\r\n";
             }
 
             default -> "-ERR unknown command\r\n";
