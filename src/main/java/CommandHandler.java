@@ -15,9 +15,15 @@ public class CommandHandler {
     private final List<String[]> transactionQueue = new ArrayList<>();
     private final Set<String> watchedKeys = new HashSet<>();
     private final boolean isReplica;
+    private final String replicationId;
+    private final long replicationOffset;
 
-    public CommandHandler(boolean isReplica) {
+    public CommandHandler(boolean isReplica, String replicationId,
+                          long replicationOffset) {
+
         this.isReplica = isReplica;
+        this.replicationId = replicationId;
+        this.replicationOffset = replicationOffset;
     }
 
     private int compareStreamIds(String a, String b) {
@@ -699,7 +705,9 @@ public class CommandHandler {
                             "# Replication\r\n" +
                                     (isReplica
                                             ? "role:slave\r\n"
-                                            : "role:master\r\n");
+                                            : "role:master\r\n") +
+                                    "master_replid:" + replicationId + "\r\n" +
+                                    "master_repl_offset:" + replicationOffset + "\r\n";
 
                     yield "$" + response.length() +
                             "\r\n" +

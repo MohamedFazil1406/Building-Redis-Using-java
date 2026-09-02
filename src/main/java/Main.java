@@ -12,6 +12,14 @@ public class Main {
         int port = 6379;
         boolean isReplica = false;
 
+        String masterHost = null;
+        int masterPort = 0;
+
+        String replicationId =
+                "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
+
+        long replicationOffset = 0;
+
         // Read command-line arguments
         for (int i = 0; i < args.length; i++) {
 
@@ -21,23 +29,39 @@ public class Main {
 
             if (args[i].equals("--replicaof")) {
                 isReplica = true;
+
+                String[] masterInfo = args[i + 1].split(" ");
+
+                masterHost = masterInfo[0];
+                masterPort = Integer.parseInt(masterInfo[1]);
             }
+        }
+
+        // Connect to master if running as replica
+        if (isReplica) {
+            connectToMaster(masterHost, masterPort);
         }
 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
 
             serverSocket.setReuseAddress(true);
 
-            System.out.println("Redis server running on port " + port);
+            System.out.println(
+                    "Redis server running on port " + port);
 
-            // Pass replica information to CommandHandler
-            CommandHandler handler = new CommandHandler(isReplica);
+            CommandHandler handler =
+                    new CommandHandler(
+                            isReplica,
+                            replicationId,
+                            replicationOffset);
 
             while (true) {
 
                 Socket client = serverSocket.accept();
 
-                new Thread(() -> handleClient(client, handler)).start();
+                new Thread(
+                        () -> handleClient(client, handler)
+                ).start();
             }
 
         } catch (IOException e) {
@@ -45,24 +69,57 @@ public class Main {
         }
     }
 
-    static void handleClient(Socket client, CommandHandler handler) {
+
+    static void connectToMaster(String host, int port) {
 
         try {
 
-            InputStream inputStream = client.getInputStream();
+            Socket master =
+                    new Socket(host, port);
+
+            System.out.println(
+                    "Connected to master "
+                            + host + ":" + port);
+
+            String ping =
+                    "*1\r\n$4\r\nPING\r\n";
+
+            master.getOutputStream()
+                    .write(ping.getBytes());
+
+            master.getOutputStream().flush();
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    static void handleClient(
+            Socket client,
+            CommandHandler handler) {
+
+        try {
+
+            InputStream inputStream =
+                    client.getInputStream();
 
             byte[] buffer = new byte[1024];
 
             int bytesRead;
 
-            while ((bytesRead = inputStream.read(buffer)) != -1) {
+            while ((bytesRead =
+                    inputStream.read(buffer)) != -1) {
 
                 String request =
-                        new String(buffer, 0, bytesRead);
+                        new String(
+                                buffer,
+                                0,
+                                bytesRead);
 
-                System.out.println("Received: " + request);
+                System.out.println(
+                        "Received: " + request);
 
-                // Temporary response
                 client.getOutputStream()
                         .write("+PONG\r\n".getBytes());
             }
