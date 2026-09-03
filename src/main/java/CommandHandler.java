@@ -1,3 +1,4 @@
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -35,8 +36,12 @@ public class CommandHandler {
         this.replicationId = replicationId;
         this.replicationOffset = replicationOffset;
         this.connectedReplicas = connectedReplicas;
-        this.dir=dir;
-        this.dbfilename=dbfilename;
+        this.dir = dir;
+        this.dbfilename = dbfilename;
+
+        loadRdb();
+
+
     }
 
     private int compareStreamIds(String a, String b) {
@@ -796,7 +801,334 @@ public class CommandHandler {
                 yield ":" + connectedReplicas.get() + "\r\n";
             }
 
+            case "KEYS" -> {
+
+                String pattern = tokens[1];
+
+                if (pattern.equals("*")) {
+
+                    StringBuilder response =
+                            new StringBuilder();
+
+                    response.append("*")
+                            .append(data.size())
+                            .append("\r\n");
+
+                    for (String key : data.keySet()) {
+
+                        response.append("$")
+                                .append(
+                                        key.getBytes(
+                                                StandardCharsets.UTF_8
+                                        ).length
+                                )
+                                .append("\r\n");
+
+                        response.append(key)
+                                .append("\r\n");
+                    }
+
+                    yield response.toString();
+                }
+
+                yield "*0\r\n";
+            }
+
             default -> "-ERR unknown command\r\n";
         };
     }
+
+
+    private void loadRdb() {
+
+        if (dir == null || dbfilename == null) {
+            return;
+        }
+
+        File file = new File(dir, dbfilename);
+
+        if (!file.exists()) {
+            System.out.println("RDB file not found: " + file.getAbsolutePath());
+            return;
+        }
+
+        try (InputStream input =
+                     new FileInputStream(file)) {
+
+            // -------------------------
+            // 1. Read header
+            // -------------------------
+
+            byte[] header = new byte[9];
+
+            int read = input.read(header);
+
+            if (read != 9) {
+                return;
+            }
+
+            String headerString =
+                    new String(
+                            header,
+                            StandardCharsets.UTF_8
+                    );
+
+            if (!headerString.equals("REDIS0011")) {
+                System.out.println("Invalid RDB header");
+                return;
+            }
+
+            // -------------------------
+            // 2. Read remaining sections
+            // -------------------------
+
+            while (true) {
+
+                int opcode = input.read();
+
+                if (opcode == -1) {
+                    break;
+                }
+
+                // End of RDB
+                if (opcode == 0xFF) {
+                    break;
+                }
+
+                // Metadata
+                if (opcode == 0xFA) {
+
+                    readString(input); // metadata name
+                    readString(input); // metadata value
+
+                    continue;
+                }
+
+                // Database
+                if (opcode == 0xFE) {
+
+                    // Database number
+                    readLength(input);
+
+                    int hashTableOpcode = input.read();
+
+                    if (hashTableOpcode != 0xFB) {
+                        continue;
+                    }
+
+                    // Hash table size
+                    readLength(input);
+
+                    // Expiry table size
+                    readLength(input);
+
+                    // Read database entries
+                    readDatabaseEntries(input);
+
+                    continue;
+                }
+            }
+
+        } catch (IOException e) {
+
+            System.out.println(
+                    "RDB loading error: "
+                            + e.getMessage()
+            );
+        }
+    }
+
+    private void readDatabaseEntries(
+            InputStream input
+    ) throws IOException {
+
+        while (true) {
+
+            int first = input.read();
+
+            if (first == -1) {
+                return;
+            }
+
+            // End of database / next database / EOF
+            if (first == 0xFE || first == 0xFF) {
+                return;
+            }
+
+            Long expirationTime = null;
+
+            // Expiry in milliseconds
+            if (first == 0xFC) {
+
+                expirationTime =
+                        readLongLittleEndian(input);
+
+                first = input.read();
+            }
+
+            // Expiry in seconds
+            else if (first == 0xFD) {
+
+                long seconds =
+                        readIntLittleEndian(input);
+
+                expirationTime =
+                        seconds * 1000L;
+
+                first = input.read();
+            }
+
+            // Value type
+            int valueType = first;
+
+            // This implementation currently supports strings
+            if (valueType != 0) {
+
+                System.out.println(
+                        "Unsupported RDB value type: "
+                                + valueType
+                );
+
+                return;
+            }
+
+            // Key
+            String key =
+                    readString(input);
+
+            // Value
+            String value =
+                    readString(input);
+
+            // Check expiration
+            if (expirationTime != null &&
+                    System.currentTimeMillis() >= expirationTime) {
+
+                continue;
+            }
+
+            data.put(key, value);
+
+            if (expirationTime != null) {
+                expiry.put(key, expirationTime);
+            }
+
+            System.out.println(
+                    "Loaded RDB key: "
+                            + key
+                            + " = "
+                            + value
+            );
+        }
+    }
+
+    private int readLength(
+            InputStream input
+    ) throws IOException {
+
+        int first = input.read();
+
+        if (first == -1) {
+            throw new EOFException();
+        }
+
+        int type =
+                (first & 0xC0) >> 6;
+
+        // 00xxxxxx
+        if (type == 0) {
+
+            return first & 0x3F;
+        }
+
+        // 01xxxxxx xxxxxxxx
+        if (type == 1) {
+
+            int second = input.read();
+
+            return ((first & 0x3F) << 8)
+                    | second;
+        }
+
+        // 10xxxxxx + 4 bytes
+        if (type == 2) {
+
+            int b1 = input.read();
+            int b2 = input.read();
+            int b3 = input.read();
+            int b4 = input.read();
+
+            return (b1 << 24)
+                    | (b2 << 16)
+                    | (b3 << 8)
+                    | b4;
+        }
+
+        // 11xxxxxx = special encoding
+        throw new IOException(
+                "Special RDB string encoding"
+        );
+    }
+
+    private String readString(
+            InputStream input
+    ) throws IOException {
+
+        int length = readLength(input);
+
+        byte[] bytes =
+                input.readNBytes(length);
+
+        if (bytes.length != length) {
+            throw new EOFException();
+        }
+
+        return new String(
+                bytes,
+                StandardCharsets.UTF_8
+        );
+    }
+
+    private long readLongLittleEndian(
+            InputStream input
+    ) throws IOException {
+
+        long result = 0;
+
+        for (int i = 0; i < 8; i++) {
+
+            int b = input.read();
+
+            if (b == -1) {
+                throw new EOFException();
+            }
+
+            result |=
+                    ((long) b) << (8 * i);
+        }
+
+        return result;
+    }
+
+    private long readIntLittleEndian(
+            InputStream input
+    ) throws IOException {
+
+        long result = 0;
+
+        for (int i = 0; i < 4; i++) {
+
+            int b = input.read();
+
+            if (b == -1) {
+                throw new EOFException();
+            }
+
+            result |=
+                    ((long) b) << (8 * i);
+        }
+
+        return result;
+    }
+
 }
