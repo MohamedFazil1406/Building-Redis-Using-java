@@ -7,10 +7,22 @@ public class TestClient {
 
     public static void main(String[] args) throws Exception {
 
-        Socket socket = new Socket("localhost", 6379);
+        test("dir");
+        test("appendonly");
+        test("appenddirname");
+        test("appendfilename");
+    }
 
-        InputStream input = socket.getInputStream();
-        OutputStream output = socket.getOutputStream();
+    static void test(String parameter) throws Exception {
+
+        Socket socket =
+                new Socket("localhost", 6379);
+
+        InputStream input =
+                socket.getInputStream();
+
+        OutputStream output =
+                socket.getOutputStream();
 
         String command =
                 "*3\r\n" +
@@ -18,21 +30,34 @@ public class TestClient {
                         "CONFIG\r\n" +
                         "$3\r\n" +
                         "GET\r\n" +
-                        "$3\r\n" +
-                        "dir\r\n";
+                        "$" + parameter.length() + "\r\n" +
+                        parameter + "\r\n";
 
         output.write(
-                command.getBytes(StandardCharsets.UTF_8)
+                command.getBytes(
+                        StandardCharsets.UTF_8
+                )
         );
 
         output.flush();
 
-        byte[] buffer = new byte[1024];
+        byte[] buffer =
+                new byte[1024];
 
-        int n = input.read(buffer);
+        int n =
+                input.read(buffer);
 
         System.out.println(
-                new String(buffer, 0, n)
+                "CONFIG GET " + parameter
+        );
+
+        System.out.println(
+                new String(
+                        buffer,
+                        0,
+                        n,
+                        StandardCharsets.UTF_8
+                )
         );
 
         socket.close();

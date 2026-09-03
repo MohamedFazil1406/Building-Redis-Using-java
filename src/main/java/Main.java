@@ -11,11 +11,13 @@ public class Main {
                     "UkVESVMwMDEwOAAAAAAAAA=="
             );
 
+
+
     static AtomicInteger connectedReplicas =
             new AtomicInteger(0);
 
-    static String dir = null;
-    static String dbfilename = null;
+    static String dir = System.getProperty("user.dir");
+    static String dbfilename = "dump.rdb";
     static boolean isReplicaConnection = false;
 
     static class ParsedCommand {

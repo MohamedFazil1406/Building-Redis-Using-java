@@ -23,6 +23,9 @@ public class CommandHandler {
     private final AtomicInteger connectedReplicas;
     private final String dir;
     private final String dbfilename;
+    private final String appendonly = "no";
+    private final String appenddirname = "appendonlydir";
+    private final String appendfilename = "appendonly.aof";
 
     public CommandHandler(
             boolean isReplica,
@@ -178,51 +181,6 @@ public class CommandHandler {
             transactionQueue.add(tokens);
 
             return "+QUEUED\r\n";
-        }
-
-        if (tokens[0].equalsIgnoreCase("CONFIG")) {
-
-            if (tokens.length >= 3
-                    && tokens[1].equalsIgnoreCase("GET")) {
-
-                String parameter = tokens[2];
-
-                if (parameter.equalsIgnoreCase("dir")) {
-
-                    String value =
-                            dir == null ? "" : dir;
-
-                    return "*2\r\n" +
-                            "$3\r\n" +
-                            "dir\r\n" +
-                            "$" +
-                            value.getBytes(
-                                    StandardCharsets.UTF_8
-                            ).length +
-                            "\r\n" +
-                            value +
-                            "\r\n";
-                }
-
-                if (parameter.equalsIgnoreCase("dbfilename")) {
-
-                    String value =
-                            dbfilename == null
-                                    ? ""
-                                    : dbfilename;
-
-                    return "*2\r\n" +
-                            "$10\r\n" +
-                            "dbfilename\r\n" +
-                            "$" +
-                            value.getBytes(
-                                    StandardCharsets.UTF_8
-                            ).length +
-                            "\r\n" +
-                            value +
-                            "\r\n";
-                }
-            }
         }
 
         return switch (command) {
@@ -832,6 +790,50 @@ public class CommandHandler {
                 }
 
                 yield "*0\r\n";
+            }
+            case "CONFIG" -> {
+
+                if (tokens.length >= 3 &&
+                        tokens[1].equalsIgnoreCase("GET")) {
+
+                    String parameter = tokens[2].toLowerCase();
+
+                    String value = null;
+
+                    switch (parameter) {
+
+                        case "dir":
+                            value = dir;
+                            break;
+
+                        case "dbfilename":
+                            value = dbfilename;
+                            break;
+
+                        case "appendonly":
+                            value = appendonly;
+                            break;
+
+                        case "appenddirname":
+                            value = appenddirname;
+                            break;
+
+                        case "appendfilename":
+                            value = appendfilename;
+                            break;
+
+                        default:
+                            yield "*0\r\n";
+                    }
+
+                    yield "*2\r\n"
+                            + "$" + parameter.length() + "\r\n"
+                            + parameter + "\r\n"
+                            + "$" + value.length() + "\r\n"
+                            + value + "\r\n";
+                }
+
+                yield "-ERR syntax error\r\n";
             }
 
             default -> "-ERR unknown command\r\n";
