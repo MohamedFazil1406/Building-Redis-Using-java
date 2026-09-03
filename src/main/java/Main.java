@@ -1,6 +1,7 @@
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -18,6 +19,8 @@ public class Main {
 
     static String dir = System.getProperty("user.dir");
     static String dbfilename = "dump.rdb";
+    static String appendfilename = "appendonly.aof";
+    static boolean appendonly = false;
     static boolean isReplicaConnection = false;
 
     static class ParsedCommand {
@@ -66,6 +69,19 @@ public class Main {
             if (args[i].equals("--dbfilename")) {
                 dbfilename = args[i + 1];
             }
+            else if (args[i].equals("--appendonly")) {
+                appendonly = args[++i].equalsIgnoreCase("yes");
+
+                System.out.println(
+                        "AOF enabled: " + appendonly
+                );
+            }
+
+
+
+            else if (args[i].equals("--appendfilename")) {
+                appendfilename = args[++i];
+            }
 
             if (args[i].equals("--replicaof")) {
 
@@ -80,6 +96,8 @@ public class Main {
                         Integer.parseInt(masterInfo[1]);
             }
         }
+
+        createAofManifest(dir, appendfilename);
 
 
         try (ServerSocket serverSocket =
@@ -500,6 +518,19 @@ public class Main {
                         )
                 );
 
+                System.out.println("appendonly = " + appendonly);
+                System.out.println("write command = " + isWriteCommand(tokens));
+
+                if (appendonly && isWriteCommand(tokens)) {
+
+                    System.out.println(
+                            "Calling appendToAof for: " +
+                                    String.join(" ", tokens)
+                    );
+
+                    appendToAof(tokens);
+                }
+
 
                 String response =
                         handler.handle(tokens);
@@ -859,5 +890,138 @@ public class Main {
 
 
         return response.toString();
+    }
+
+    static void createAofManifest(
+            String dir,
+            String appendfilename) {
+
+        try {
+
+            File directory = new File(dir);
+
+            // Create directory if it doesn't exist
+            if (!directory.exists()) {
+                directory.mkdirs();
+            }
+
+            String manifestName =
+                    appendfilename + ".manifest";
+
+            File manifest =
+                    new File(directory, manifestName);
+
+            String content =
+                    "file "
+                            + appendfilename
+                            + ".1.incr.aof seq 1 type i\n";
+
+            try (FileWriter writer =
+                         new FileWriter(manifest)) {
+
+                writer.write(content);
+            }
+
+            System.out.println(
+                    "Created AOF manifest: "
+                            + manifest.getAbsolutePath()
+            );
+
+        } catch (IOException e) {
+
+            System.out.println(
+                    "Error creating AOF manifest: "
+                            + e.getMessage()
+            );
+        }
+    }
+
+    static boolean isWriteCommand(String[] tokens) {
+
+        if (tokens == null || tokens.length == 0) {
+            return false;
+        }
+
+        String command = tokens[0].toUpperCase();
+
+        return switch (command) {
+
+            case "SET",
+                 "DEL",
+                 "INCR",
+                 "DECR",
+                 "LPUSH",
+                 "RPUSH",
+                 "LPOP",
+                 "RPOP",
+                 "SADD",
+                 "SREM",
+                 "HSET",
+                 "HDEL",
+                 "XADD" -> true;
+
+            default -> false;
+        };
+    }
+
+    static void appendToAof(String[] tokens) {
+
+        try {
+
+            File directory = new File(dir);
+
+            if (!directory.exists()) {
+                directory.mkdirs();
+            }
+
+            File aofFile = new File(
+                    directory,
+                    appendfilename + ".1.incr.aof"
+            );
+
+            StringBuilder resp =
+                    new StringBuilder();
+
+            resp.append("*")
+                    .append(tokens.length)
+                    .append("\r\n");
+
+            for (String token : tokens) {
+
+                byte[] bytes =
+                        token.getBytes(StandardCharsets.UTF_8);
+
+                resp.append("$")
+                        .append(bytes.length)
+                        .append("\r\n");
+
+                resp.append(token)
+                        .append("\r\n");
+            }
+
+            try (FileOutputStream output =
+                         new FileOutputStream(aofFile, true)) {
+
+                output.write(
+                        resp.toString()
+                                .getBytes(StandardCharsets.UTF_8)
+                );
+
+                output.flush();
+            }
+
+            System.out.println(
+                    "AOF written: " +
+                            aofFile.getAbsolutePath()
+            );
+
+        } catch (IOException e) {
+
+            System.out.println(
+                    "AOF ERROR: " + e.getMessage()
+            );
+
+            e.printStackTrace();
+        }
     }
 }

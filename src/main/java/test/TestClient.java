@@ -1,4 +1,5 @@
 package test;
+
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
@@ -7,13 +8,18 @@ public class TestClient {
 
     public static void main(String[] args) throws Exception {
 
-        test("dir");
-        test("appendonly");
-        test("appenddirname");
-        test("appendfilename");
+        test("SET", "foo", "bar");
+
+        test("GET", "foo");
+
+        test("PING");
+
+        test("ECHO", "hello");
+
+        test("SET", "bar", "baz");
     }
 
-    static void test(String parameter) throws Exception {
+    static void test(String... tokens) throws Exception {
 
         Socket socket =
                 new Socket("localhost", 6379);
@@ -24,41 +30,65 @@ public class TestClient {
         OutputStream output =
                 socket.getOutputStream();
 
-        String command =
-                "*3\r\n" +
-                        "$6\r\n" +
-                        "CONFIG\r\n" +
-                        "$3\r\n" +
-                        "GET\r\n" +
-                        "$" + parameter.length() + "\r\n" +
-                        parameter + "\r\n";
 
+        // Build RESP command
+        StringBuilder command =
+                new StringBuilder();
+
+        command.append("*")
+                .append(tokens.length)
+                .append("\r\n");
+
+        for (String token : tokens) {
+
+            byte[] bytes =
+                    token.getBytes(
+                            StandardCharsets.UTF_8
+                    );
+
+            command.append("$")
+                    .append(bytes.length)
+                    .append("\r\n");
+
+            command.append(token)
+                    .append("\r\n");
+        }
+
+
+        // Send command
         output.write(
-                command.getBytes(
-                        StandardCharsets.UTF_8
-                )
+                command.toString()
+                        .getBytes(StandardCharsets.UTF_8)
         );
 
         output.flush();
 
+
+        // Read response
         byte[] buffer =
                 new byte[1024];
 
         int n =
                 input.read(buffer);
 
+
         System.out.println(
-                "CONFIG GET " + parameter
+                "Command: " +
+                        String.join(" ", tokens)
         );
 
         System.out.println(
-                new String(
-                        buffer,
-                        0,
-                        n,
-                        StandardCharsets.UTF_8
-                )
+                "Response: " +
+                        new String(
+                                buffer,
+                                0,
+                                n,
+                                StandardCharsets.UTF_8
+                        )
         );
+
+        System.out.println("----------------");
+
 
         socket.close();
     }
