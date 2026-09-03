@@ -20,6 +20,7 @@ public class Main {
     static String dir = System.getProperty("user.dir");
     static String dbfilename = "dump.rdb";
     static String appendfilename = "appendonly.aof";
+    static String appenddirname = "appendonlydir";
     static boolean appendonly = false;
     static boolean isReplicaConnection = false;
 
@@ -77,7 +78,9 @@ public class Main {
                 );
             }
 
-
+            else if (args[i].equals("--appenddirname")) {
+                appenddirname = args[++i];
+            }
 
             else if (args[i].equals("--appendfilename")) {
                 appendfilename = args[++i];
@@ -120,6 +123,10 @@ public class Main {
                             dir,
                             dbfilename
                     );
+
+            if (appendonly) {
+                loadAof(handler);
+            }
 
 
             // ============================================
@@ -968,16 +975,18 @@ public class Main {
 
         try {
 
-            File directory = new File(dir);
+            File appendDir =
+                    new File(dir, appenddirname);
 
-            if (!directory.exists()) {
-                directory.mkdirs();
+            if (!appendDir.exists()) {
+                appendDir.mkdirs();
             }
 
-            File aofFile = new File(
-                    directory,
-                    appendfilename + ".1.incr.aof"
-            );
+            File aofFile =
+                    new File(
+                            appendDir,
+                            appendfilename + ".1.incr.aof"
+                    );
 
             StringBuilder resp =
                     new StringBuilder();
@@ -1000,7 +1009,10 @@ public class Main {
             }
 
             try (FileOutputStream output =
-                         new FileOutputStream(aofFile, true)) {
+                         new FileOutputStream(
+                                 aofFile,
+                                 true
+                         )) {
 
                 output.write(
                         resp.toString()
@@ -1011,14 +1023,167 @@ public class Main {
             }
 
             System.out.println(
-                    "AOF written: " +
-                            aofFile.getAbsolutePath()
+                    "AOF written: "
+                            + aofFile.getAbsolutePath()
             );
 
         } catch (IOException e) {
 
+            e.printStackTrace();
+        }
+    }
+
+    static void loadAof(CommandHandler handler) {
+
+        if (!appendonly) {
+            return;
+        }
+
+        try {
+
+            // dir/appendonlydir/appendonly.aof.manifest
+            File appendDir = new File(dir, appenddirname);
+
+            if (!appendDir.exists()) {
+                appendDir.mkdirs();
+            }
+
+            File manifestFile =
+                    new File(
+                            appendDir,
+                            appendfilename + ".manifest"
+                    );
+
+            if (!manifestFile.exists()) {
+
+                String content =
+                        "file " + appendfilename +
+                                ".1.incr.aof seq 1 type i\n";
+
+                try (FileWriter writer =
+                             new FileWriter(manifestFile)) {
+
+                    writer.write(content);
+                }
+
+                System.out.println(
+                        "Created AOF manifest: "
+                                + manifestFile.getAbsolutePath()
+                );
+            }
+
             System.out.println(
-                    "AOF ERROR: " + e.getMessage()
+                    "Loading AOF manifest: "
+                            + manifestFile.getAbsolutePath()
+            );
+
+            BufferedReader reader =
+                    new BufferedReader(
+                            new FileReader(manifestFile)
+                    );
+
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+
+                System.out.println(
+                        "Manifest: " + line
+                );
+
+                String[] parts =
+                        line.trim().split("\\s+");
+
+                /*
+                 * file appendonly.aof.1.incr.aof seq 1 type i
+                 */
+
+                if (parts.length >= 6
+                        && parts[0].equals("file")
+                        && parts[4].equals("type")
+                        && parts[5].equals("i")) {
+
+                    String aofFilename =
+                            parts[1];
+
+                    File aofFile =
+                            new File(
+                                    appendDir,
+                                    aofFilename
+                            );
+
+                    replayAof(
+                            aofFile,
+                            handler
+                    );
+                }
+            }
+
+            reader.close();
+
+        } catch (IOException e) {
+
+            System.out.println(
+                    "AOF loading error: "
+                            + e.getMessage()
+            );
+
+            e.printStackTrace();
+        }
+    }
+
+    static void replayAof(
+            File aofFile,
+            CommandHandler handler
+    ) {
+
+        if (!aofFile.exists()) {
+
+            System.out.println(
+                    "AOF file not found: "
+                            + aofFile.getAbsolutePath()
+            );
+
+            return;
+        }
+
+        System.out.println(
+                "Replaying AOF: "
+                        + aofFile.getAbsolutePath()
+        );
+
+        try (FileInputStream input =
+                     new FileInputStream(aofFile)) {
+
+            while (input.available() > 0) {
+
+                ParsedCommand command =
+                        parseRESPWithLength(input);
+
+                if (command == null) {
+                    break;
+                }
+
+                String[] tokens =
+                        command.tokens;
+
+                System.out.println(
+                        "AOF replay: "
+                                + String.join(
+                                " ",
+                                tokens
+                        )
+                );
+
+                // Execute the command.
+                // DO NOT send a response anywhere.
+                handler.handle(tokens);
+            }
+
+        } catch (IOException e) {
+
+            System.out.println(
+                    "AOF replay error: "
+                            + e.getMessage()
             );
 
             e.printStackTrace();
